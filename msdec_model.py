@@ -231,21 +231,35 @@ class msdec_model:
             #Get model time variables
             time = self.env.now
             day, day_of_week, weekend, hour = self.model_time(time)
-            #If MSDEC is open, spawn a new patient and send them to MSDEC
-            if self.MSDEC_open(hour):
-                #Ensure patient has at least an hour left before close, otherwise
-                #wait until next day.
-                time_to_close = (day*(24*60) + (self.inputs.MSDEC_close*60) - time)
-                if time_to_close > 60:
-                    #up patient counter
-                    self.patient_counter += 1
-                    #randomly sample age
-                    age = random.randint(ages[0], ages[1])
-                    #Create patient and begin MSDEC journey
-                    p = spawn_patient(self.patient_counter, age_band, age, time,
-                                    self.year, day, hour, weekend, time_to_close)
-        #            print(f'Patient {p.id} spawned, age band: {age_band}, weekend: {weekend}, day: {day}')
-                    self.env.process(self.msdec_journey(p))
+            #If MSDEC is not open, time out until it is, plus a random stagger
+            #of a couple of hours to mimic actual distribution.
+            if not self.MSDEC_open(hour):
+                nxt_open_day = day if hour < self.inputs.MSDEC_close else day + 1
+                nxt_open = (nxt_open_day)*(24*60) + (self.inputs.MSDEC_open*60)
+                stagger = random.expovariate(1.0 / (60*5)) # randomly stagger
+                #If stagger goes over close, re-sample until during opening hours
+                while stagger > (self.inputs.MSDEC_close - self.inputs.MSDEC_open)*60:
+                    stagger = random.expovariate(1.0 / (60*5)) # randomly stagger
+                timeout = nxt_open - time + stagger
+
+                yield self.env.timeout(nxt_open - time + stagger)
+
+            #pd.Series([random.expovariate(1.0/ (60*((MSDEC_close- MSDEC_open)/2))) for i in range(1000)]).hist(bins=24)
+            #Ensure patient has at least an hour left before close, otherwise
+            #wait until next day.
+            time = self.env.now
+            day, day_of_week, weekend, hour = self.model_time(time)
+            time_to_close = (day*(24*60) + (self.inputs.MSDEC_close*60) - time)
+            if time_to_close > 60:
+                #up patient counter
+                self.patient_counter += 1
+                #randomly sample age
+                age = random.randint(ages[0], ages[1])
+                #Create patient and begin MSDEC journey
+                p = spawn_patient(self.patient_counter, age_band, age, time,
+                                self.year, day, hour, weekend, time_to_close)
+    #            print(f'Patient {p.id} spawned, age band: {age_band}, weekend: {weekend}, day: {day}')
+                self.env.process(self.msdec_journey(p))
         #    else:
         #        print(f'{age_band} generator pausing for MSDEC close')
             #re-calculate inter arrival time and wait that time until next arrival
@@ -343,7 +357,6 @@ pat, occ = run_the_model(default_params)
 os.chdir('C:/Users/obriene/Projects/Discrete Event Simulation/MSDEC model/Outputs')
 pat.to_csv('Patients.csv')
 occ.to_csv('Occupancy.csv')
-
 
 ################################################################################
                                 ####PLOTS####
@@ -447,7 +460,6 @@ ax2.set_title('Weekend', fontsize=18)
 ax2.set_xlabel('Hour of Day', fontsize=18)
 ax2.tick_params(axis='both',  which='major', labelsize=18)
 fig.tight_layout()
-
 plt.savefig(f'Hourly Occupancy Weekday and Weekend.png',
             bbox_inches='tight', dpi=1200)
 plt.close()
