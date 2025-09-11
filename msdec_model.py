@@ -6,9 +6,9 @@ import random
 import itertools
 import numpy as np
 import pandas as pd
+from datetime import datetime
 import matplotlib.pyplot as plt
 from sqlalchemy import create_engine
-from datetime import datetime, date, timedelta
 os.chdir('C:/Users/obriene/Projects/Discrete Event Simulation/MSDEC model')
 from uhpt_population_projection import age_bands
 
@@ -133,18 +133,13 @@ class default_params():
     daily_arrivals = daily_arrivals.groupby(['Age Bands',
                                              'Weekend'])['count'].mean() * 0.85
 
-        ######read in the population projections
-    #proj = pd.read_csv(
-     #      'C:/Users/obriene/Projects/Discrete Event Simulation/MSDEC model/UHPT Population Projection.csv'
-      #     ).set_index('Age Bands')
-    years = [str(i) for i in range(datetime.today().year,
-                                   datetime.today().year + 11)]
-        ######Calculate the % change between years for each age group, add
+        ######Read in the % change between years for each age group, add
         ######current arrival rates to the change dataframe
-    #change = (proj.T.pct_change() + 1).T.dropna(axis=1)[years[1:]]
     change = pd.read_csv(
              'C:/Users/obriene/Projects/Discrete Event Simulation/MSDEC model/UHPT Population Change.csv'
              ).set_index('Age Bands')
+    years = [str(i) for i in range(datetime.today().year,
+                                   datetime.today().year + 11)]
     change = pd.DataFrame(daily_arrivals).join(change)
     #Loop through each age group and using current arrival numbers, use the
     #population projections to simulate number of arrivals in n years
@@ -217,7 +212,6 @@ class msdec_model:
     
     #############################ARRIVALS##################################
     def generate_age_band_arrivals(self, age_band):
-    #    print(f'Starting generate age band arrivals {age_band}, {self.year}')
         #Get average inter-arrival time for that age band
         av_inter_arrival = self.inputs.inter_arr.loc[(age_band, 'Weekday'),
                                                      str(self.year)]
@@ -244,7 +238,6 @@ class msdec_model:
 
                 yield self.env.timeout(nxt_open - time + stagger)
 
-            #pd.Series([random.expovariate(1.0/ (60*((MSDEC_close- MSDEC_open)/2))) for i in range(1000)]).hist(bins=24)
             #Ensure patient has at least an hour left before close, otherwise
             #wait until next day.
             time = self.env.now
@@ -258,10 +251,7 @@ class msdec_model:
                 #Create patient and begin MSDEC journey
                 p = spawn_patient(self.patient_counter, age_band, age, time,
                                 self.year, day, hour, weekend, time_to_close)
-    #            print(f'Patient {p.id} spawned, age band: {age_band}, weekend: {weekend}, day: {day}')
                 self.env.process(self.msdec_journey(p))
-        #    else:
-        #        print(f'{age_band} generator pausing for MSDEC close')
             #re-calculate inter arrival time and wait that time until next arrival
             av_inter_arrival = self.inputs.inter_arr.loc[(age_band, weekend),
                                                                 str(self.year)]
@@ -273,7 +263,6 @@ class msdec_model:
         #Patient comes into msdec and gets a chair
         with self.chair.request() as req:
             yield req
-          #  print(f'Patient {patient.id} got chair at {patient.arr_time}, time to close: {patient.time_to_close}')
             #randomly sample the time spent in msdec based on age band LoS.
             mean, std = self.inputs.LoS.loc[(patient.age_band, patient.is_weekend)]
             sampled_LoS = min(np.random.normal(mean, std), patient.time_to_close)
@@ -281,10 +270,8 @@ class msdec_model:
             while ((sampled_LoS < self.inputs.min_LoS)
                    or (sampled_LoS > self.inputs.max_LoS)):
                     sampled_LoS = min(np.random.normal(mean, std), patient.time_to_close)
-          #  print(f'Patient {patient.id}, LoS: {sampled_LoS}')
             yield self.env.timeout(sampled_LoS)
         #Record discharge time and save patient results
-    #    print(f'Patient {patient.id} leaving at {self.env.now}')
         patient.dis_time = self.env.now
         self.store_patient_results(patient)
 
