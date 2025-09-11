@@ -18,7 +18,7 @@ from uhpt_population_projection import age_bands
 
 class default_params():
     ##############################USER PARAMETERS###############################
-    scenario_name = 'Baseline'
+    scenario_name = 'MSDEC new build'
     #####Time between ococupancy samples
     occ_sample_time = 60
     #####run times and iterations
@@ -122,29 +122,29 @@ class default_params():
     dates = current_msdec['Date'].drop_duplicates().to_list()
     weekend = ['Weekend' if date.weekday() >= 5 else 'Weekday' for date in dates]
     age_bands = current_msdec['Age Bands'].drop_duplicates().to_list()
-    df_data = []
-    for date, age in itertools.product(dates, age_bands):
-        date_index = dates.index(date)
-        df_data.append({
-            'Date': date,
-            'Age Bands': age,
-            'Weekend': weekend[date_index]})
+    crosstab = pd.DataFrame(itertools.product(dates, age_bands),
+                            columns=['Date', 'Age Bands'])
+    crosstab['Weekend'] = ['Weekend' if date.weekday() >= 5 else 'Weekday'
+                           for date in crosstab['Date']]
     #Merge missing days onto data, fill with 0.  Group up to get average
-    #arrivals by age band
-    daily_arrivals = daily_arrivals.merge(pd.DataFrame(df_data),
+    #arrivals by age band, multiply by 0.85 to remove the 15% UTC demand
+    daily_arrivals = daily_arrivals.merge(crosstab,
                      on=['Age Bands', 'Date', 'Weekend'], how='outer').fillna(0)
     daily_arrivals = daily_arrivals.groupby(['Age Bands',
-                                             'Weekend'])['count'].mean()
+                                             'Weekend'])['count'].mean() * 0.85
 
         ######read in the population projections
-    proj = pd.read_csv(
-           'C:/Users/obriene/Projects/Discrete Event Simulation/MSDEC model/UHPT Population Projection.csv'
-           ).set_index('Age Bands')
+    #proj = pd.read_csv(
+     #      'C:/Users/obriene/Projects/Discrete Event Simulation/MSDEC model/UHPT Population Projection.csv'
+      #     ).set_index('Age Bands')
     years = [str(i) for i in range(datetime.today().year,
                                    datetime.today().year + 11)]
         ######Calculate the % change between years for each age group, add
         ######current arrival rates to the change dataframe
-    change = (proj.T.pct_change() + 1).T.dropna(axis=1)[years[1:]]
+    #change = (proj.T.pct_change() + 1).T.dropna(axis=1)[years[1:]]
+    change = pd.read_csv(
+             'C:/Users/obriene/Projects/Discrete Event Simulation/MSDEC model/UHPT Population Change.csv'
+             ).set_index('Age Bands')
     change = pd.DataFrame(daily_arrivals).join(change)
     #Loop through each age group and using current arrival numbers, use the
     #population projections to simulate number of arrivals in n years
@@ -355,8 +355,8 @@ def run_the_model(inputs):
 ##################################SAVE RESULTS##################################
 pat, occ = run_the_model(default_params)
 os.chdir('C:/Users/obriene/Projects/Discrete Event Simulation/MSDEC model/Outputs')
-pat.to_csv('Patients.csv')
-occ.to_csv('Occupancy.csv')
+pat.to_csv(f'Patients - {default_params.scenario_name}.csv')
+occ.to_csv(f'Occupancy - {default_params.scenario_name}.csv')
 
 ################################################################################
                                 ####PLOTS####
@@ -372,7 +372,7 @@ daily_arr['Average'] = ((daily_arr['Weekday']*5) + (daily_arr['Weekend']*2)) / 7
 daily_arr.plot(title='Daily MSDEC Arrivals for the Next 10 Years',
           figsize=(20, 15), grid=True,
           style={'Weekday':'b', 'Weekend':'g', 'Average':'--r'})
-plt.savefig('Daily Arrivals.png', bbox_inches='tight')
+plt.savefig(f'Daily Arrivals - {default_params.scenario_name}.png', bbox_inches='tight')
 plt.close()
 
 #Daily arrivals over the next 10 years by age band (need to do final average
@@ -389,7 +389,7 @@ av_day_arr.pivot(columns='age band', index='arr year', values='pat ID').plot(
     subplots=True, layout=(4, 4), xlabel='Year',  ylabel='Daily Arrivals',
     ylim=(0,np.ceil(av_day_arr['pat ID'].max())), legend=False, grid=True,
     colormap='winter')
-plt.savefig('Daily Arrivals by Age Band.png', bbox_inches='tight')
+plt.savefig(f'Daily Arrivals by Age Band - {default_params.scenario_name}.png', bbox_inches='tight')
 plt.close()
 
 ######Occupancy
@@ -425,7 +425,7 @@ for name, df in [('Overall', wk_occ), ('Weekdays', wd_occ), ('Weekends', we_occ)
     ax.set_title(f'{name} MSDEC Chair Occupancy Box Plots by Year ({whis[0]}% - {whis[1]}%)', fontdict={'fontsize':20})
     plt.legend([bp['medians'][0], bp['means'][0]], ['median', 'mean'])
     ax.grid()
-    plt.savefig(f'{name} MSDEC Chair Occupancy Box Plots by Year.png', bbox_inches='tight')
+    plt.savefig(f'{name} MSDEC Chair Occupancy Box Plots by Year - {default_params.scenario_name}.png', bbox_inches='tight')
     plt.close()
 
 
@@ -460,7 +460,19 @@ ax2.set_title('Weekend', fontsize=18)
 ax2.set_xlabel('Hour of Day', fontsize=18)
 ax2.tick_params(axis='both',  which='major', labelsize=18)
 fig.tight_layout()
-plt.savefig(f'Hourly Occupancy Weekday and Weekend.png',
+plt.savefig(f'Hourly Occupancy Weekday and Weekend - {default_params.scenario_name}.png',
             bbox_inches='tight', dpi=1200)
 plt.close()
 
+print('-----------------------')
+print('Daily Arrivals:')
+print((pat.groupby(['run', 'arr year', 'arr day', 'weekend'],
+                   as_index=False)['pat ID'].count()
+          .groupby(['arr year', 'weekend'])['pat ID']
+          .agg(['min', q25, 'mean', q75, 'max'])).round(2))
+print('-----------------------')
+print('Daily Occupancy:')
+open_occ = occ.loc[(occ['hour'] > 8) & (occ['hour'] < 20)].copy()
+print(open_occ.groupby(['year', 'weekend'])['occ'].agg(['min', q25, 'mean', q75, 'max']))
+print(open_occ.groupby('year')['occ'].agg(['min', q25, 'mean', q75, 'max']))
+print('-----------------------')
