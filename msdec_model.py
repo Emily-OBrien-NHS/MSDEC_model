@@ -25,7 +25,7 @@ class default_params():
     start_year = datetime.today().year
     run_years = 10
     run_time = run_years * (365 * (60*24))
-    iterations = 10
+    iterations = 100
     #####resources
     no_chairs = 10000
     #####empty list for results
@@ -33,7 +33,7 @@ class default_params():
     occ_res = []
     #####Open and Close times and min/max LoS
     MSDEC_open = 8
-    MSDEC_close = 20
+    MSDEC_close = 22
     max_LoS = (MSDEC_close - MSDEC_open) * 60
     min_LoS = 60
 
@@ -112,7 +112,10 @@ class default_params():
     
     #####LOS in MSDEC Chair (Based on mean and std of each age band)
     LoS = current_msdec.groupby(['Age Bands', 'Weekend'])['LoS'].agg(['mean', 'std'])
-    
+    print('LoS:')
+    print(LoS.mean()/60)
+    print('--------------')
+
     #####MSDEC Inter-arrivals using Population Projections
         ######Get the current numbers of daily arrivals
     current_msdec['Date'] = current_msdec['MSDECStartDateTime'].dt.date
@@ -130,8 +133,14 @@ class default_params():
     #arrivals by age band, multiply by 0.85 to remove the 15% UTC demand
     daily_arrivals = daily_arrivals.merge(crosstab,
                      on=['Age Bands', 'Date', 'Weekend'], how='outer').fillna(0)
+    print(daily_arrivals.groupby(['Age Bands', 'Weekend'])['count'].mean().groupby('Weekend').sum())
     daily_arrivals = daily_arrivals.groupby(['Age Bands',
                                              'Weekend'])['count'].mean() * 0.85
+    print(daily_arrivals.groupby('Weekend').sum())
+    #Scale up or doqn  daily arrivals by change in opening hours
+    scale = 1 + (MSDEC_close - MSDEC_open - 12)/12
+    daily_arrivals = daily_arrivals * scale
+    print(daily_arrivals.groupby('Weekend').sum())
 
         ######Read in the % change between years for each age group, add
         ######current arrival rates to the change dataframe
@@ -423,9 +432,17 @@ def q25(x):
     return x.quantile(0.25)
 def q75(x):
     return x.quantile(0.75)
+def q80(x):
+    return x.quantile(0.80)
+def q85(x):
+    return x.quantile(0.85)
+def q90(x):
+    return x.quantile(0.90)
+def q95(x):
+    return x.quantile(0.95)
 
 occ_metrics = (occ.groupby(['weekend', 'hour'], observed=False,  as_index=False)['occ']
-               .agg(['min', q25, 'mean', q75, 'max']))
+               .agg(['min', q25, 'mean', q75, q80, q85, q90, q95, 'max']))
 hours = occ_metrics['hour'].drop_duplicates()
 #plot
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10), sharey=True)
@@ -456,10 +473,10 @@ print('Daily Arrivals:')
 print((pat.groupby(['run', 'arr year', 'arr day', 'weekend'],
                    as_index=False)['pat ID'].count()
           .groupby(['arr year', 'weekend'])['pat ID']
-          .agg(['min', q25, 'mean', q75, 'max'])).round(2))
+          .agg(['min', q25, 'mean', q75, q80, q85, q90, q95, 'max'])).round(2))
 print('-----------------------')
 print('Daily Occupancy:')
 open_occ = occ.loc[(occ['hour'] > 8) & (occ['hour'] < 20)].copy()
-print(open_occ.groupby(['year', 'weekend'])['occ'].agg(['min', q25, 'mean', q75, 'max']))
-print(open_occ.groupby('year')['occ'].agg(['min', q25, 'mean', q75, 'max']))
+print(open_occ.groupby(['year', 'weekend'])['occ'].agg(['min', q25, 'mean', q75, q80, q85, q90, q95, 'max']))
+print(open_occ.groupby('year')['occ'].agg(['min', q25, 'mean', q75, q80, q85, q90, q95, 'max']))
 print('-----------------------')
