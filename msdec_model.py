@@ -35,7 +35,7 @@ class default_params():
     MSDEC_open = 8
     MSDEC_close = 22
     max_LoS = (MSDEC_close - MSDEC_open) * 60
-    min_LoS = 60
+    min_LoS = 120
 
     #############################DYNAMIC PARAMETERS#############################
     #####Current demand
@@ -278,7 +278,7 @@ class msdec_model:
             #If LoS falls outside of limits, repeat sample until it comforms.
             while ((sampled_LoS < self.inputs.min_LoS)
                    or (sampled_LoS > self.inputs.max_LoS)):
-                    sampled_LoS = min(np.random.normal(mean, std), patient.time_to_close)
+                    sampled_LoS = np.random.normal(mean, std)
             yield self.env.timeout(sampled_LoS)
         #Record discharge time and save patient results
         patient.dis_time = self.env.now
@@ -469,14 +469,41 @@ plt.savefig(f'Hourly Occupancy Weekday and Weekend - {default_params.scenario_na
 plt.close()
 
 print('-----------------------')
-print('Daily Arrivals:')
-print((pat.groupby(['run', 'arr year', 'arr day', 'weekend'],
-                   as_index=False)['pat ID'].count()
-          .groupby(['arr year', 'weekend'])['pat ID']
-          .agg(['min', q25, 'mean', q75, q80, q85, q90, q95, 'max'])).round(2))
+print('Daily Arrivals Quartiles:')
+#Print the quartiles for the number of arrivals in the model
+print((pat.loc[pat['weekend'] == 'Weekday']
+       .groupby(['run', 'arr year', 'arr day'],as_index=False)['pat ID'].count()
+       .groupby('arr year')['pat ID']
+       .agg(['min', q25, 'mean', q75, q80, q85, q90, q95, 'max'])).round(2))
 print('-----------------------')
-print('Daily Occupancy:')
-open_occ = occ.loc[(occ['hour'] > 8) & (occ['hour'] < 20)].copy()
-print(open_occ.groupby(['year', 'weekend'])['occ'].agg(['min', q25, 'mean', q75, q80, q85, q90, q95, 'max']))
-print(open_occ.groupby('year')['occ'].agg(['min', q25, 'mean', q75, q80, q85, q90, q95, 'max']))
+print('Daily Occupancy Quartiles:')
+#Get only occupancy during opening hours on a week day, as this is higher than
+#weekends.  Print the quartiles
+open_occ = occ.loc[(occ['hour'] > default_params.MSDEC_open)
+                   & (occ['hour'] < default_params.MSDEC_close)
+                   & (occ['weekend'] == 'Weekday')].copy()
+occ_sum = (open_occ.groupby('year')['occ']
+           .agg(['min', q25, 'mean', q75, q80, q85, q90, q95, 'max']))
+print(occ_sum)
+
+print('-----------------------')
+print('Arrivals Based on Occupancy Quartiles:')
+#Find the days where occupancy reaches those quartiles.
+now = occ_sum.iloc[0]
+fut = occ_sum.iloc[-1]
+def arrivals_for_quartiles(row, label):
+    arrs = []
+    for quart in row.round():
+        days = occ.loc[(occ['occ'] == quart) & (occ['year'] == int(label)),
+                       ['run', 'day']].drop_duplicates()
+        arrivals = (days.merge(pat, left_on=['run', 'day'], 
+                               right_on=['run', 'arr day']
+                               ).groupby(['run', 'day'])['pat ID']
+                               .count().mean().round(2))
+        arrs.append(arrivals)
+    out = pd.DataFrame([arrs], columns=row.index, index=[label])
+    return out
+
+print(arrivals_for_quartiles(now, '2025'))
+print(arrivals_for_quartiles(fut, '2034'))
 print('-----------------------')
